@@ -488,7 +488,7 @@ class MainWindow(QWidget):
     def __init__(self, preset=None):
         super().__init__()
         self.preset = preset or {}        # 런처에서 넘어온 {channel,uuid,name,autostart}
-        self.setWindowTitle("치지직 API Launcher  v1.1.0")
+        self.setWindowTitle("치지직 API Launcher  v1.1.2")
         ico = resource_path(ICON_FILE)
         if os.path.exists(ico):
             self.setWindowIcon(QIcon(ico))
@@ -496,6 +496,10 @@ class MainWindow(QWidget):
         self.adapter = ZomboidAdapter()
         self.worker = None
         self.cfg = load_config()
+        self._returning = False                       # 게이트 복귀 중복 방지
+        self._pz_misses = 0
+        self._pz_timer = QTimer(self)                 # PZ 종료 감시 (연동 중에만 동작)
+        self._pz_timer.timeout.connect(self._check_pz)
         self._build()
         self._restore()
         if self.preset.get("autostart"):
@@ -665,7 +669,10 @@ class MainWindow(QWidget):
 
     # --- 시작/중지 ---
     def _toggle(self):
-        self._start() if self.worker is None else self._stop()
+        if self.worker is None:
+            self._start()
+        else:
+            self._back_to_gate()        # 중지 누르면 완전 초기 게이트로 복귀
 
     def _start(self):
         ch = self.channel_input.text().strip()
@@ -686,15 +693,42 @@ class MainWindow(QWidget):
         self.worker.start()
         self.start_btn.setText("중지"); self.start_btn.setObjectName("stop"); self.setStyleSheet(DARK_QSS)
         self.channel_input.setEnabled(False)
+        if self.preset.get("autostart"):               # 게이트를 거쳐 들어온 경우만 PZ 감시
+            self._pz_misses = 0
+            self._pz_timer.start(3000)
         self._log("연동 시작…" + ("  (19세 방송 모드)" if self.adult_check.isChecked() else ""))
 
     def _stop(self):
+        self._pz_timer.stop()
         if self.worker:
             self.worker.stop(); self.worker = None
         self.start_btn.setText("연동 시작"); self.start_btn.setObjectName("start"); self.setStyleSheet(DARK_QSS)
         self.channel_input.setEnabled(True)
         self._on_status("대기 중", "#5f5e5a")
         self._log("중지됨.")
+
+    def _back_to_gate(self):
+        """워커 정리하고 완전 초기 상태의 게이트 창으로 돌아간다 (중지 / PZ 종료 공통)."""
+        if self._returning:
+            return
+        self._returning = True
+        self._pz_timer.stop()
+        if self.worker:
+            self.worker.stop(); self.worker = None
+        self._persist()
+        self._gate = LauncherWindow()                  # 매번 새 게이트 = 채널부터 다시 (완전 초기)
+        self._gate.show()
+        self.close()
+
+    def _check_pz(self):
+        """연동 중 PZ가 종료됐는지 주기 확인. 일시적 오탐 방지로 2회 연속 미감지 시 복귀."""
+        if pz_running():
+            self._pz_misses = 0
+        else:
+            self._pz_misses += 1
+            if self._pz_misses >= 2:
+                self._log("Project Zomboid 종료 감지 — 게이트로 돌아갑니다.")
+                self._back_to_gate()
 
     # --- 시그널 핸들러 ---
     def _on_donation(self, amount, sender, message):
@@ -810,11 +844,11 @@ class LauncherCore(QObject):
 class LauncherWindow(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("치지직 API Launcher  v1.1.0")
+        self.setWindowTitle("치지직 API Launcher  v1.1.2")
         ico = resource_path(ICON_FILE)
         if os.path.exists(ico):
             self.setWindowIcon(QIcon(ico))
-        self.resize(620, 350)
+        self.resize(620, 330)
         self.core = LauncherCore()
         self.core.resolved.connect(self._on_resolved)
         self.core.invalid.connect(self._on_invalid)
