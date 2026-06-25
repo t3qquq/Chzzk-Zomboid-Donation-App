@@ -690,8 +690,8 @@ class MainWindow(QWidget):
         if self.worker:
             self.worker.stop(); self.worker = None
         if warn_adult:
-            QMessageBox.warning(self, "19세 방송 감지",
-                                "방송이 19세(성인) 방송으로 전환됐어.\n연동을 중단하고 게이트로 돌아갑니다.")
+            QMessageBox.warning(self, "연령제한 감지",
+                                "방송에 연령제한이 걸려있습니다.\n연동을 중단하고 로그인 화면으로 돌아갑니다.")
         self._persist()
         self._gate = LauncherWindow()                  # 매번 새 게이트 = 채널부터 다시 (완전 초기)
         self._gate.show()
@@ -1026,9 +1026,9 @@ class LauncherWindow(QWidget):
         self.adult_warn.setVisible(is_adult)
         if is_adult and not self._adult_warned:
             self._adult_warned = True
-            QMessageBox.warning(self, "19세 방송 감지",
-                                "이 방송은 19세(성인) 방송이라 연동할 수 없어.\n"
-                                "일반 방송으로 전환하면 자동으로 연동 가능해져.")
+            QMessageBox.warning(self, "연령제한 감지",
+                                "방송에 연령제한이 걸려있습니다.\n"
+                                "일반 방송으로 전환하면 자동으로 연동 가능해집니다.")
         elif not is_adult:
             self._adult_warned = False
         self._refresh()
