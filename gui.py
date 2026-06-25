@@ -34,7 +34,7 @@ from PyQt5.QtGui import QIcon, QPixmap
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QLabel, QLineEdit, QPushButton, QComboBox,
     QTextEdit, QVBoxLayout, QHBoxLayout, QGridLayout, QFileDialog, QFrame,
-    QCheckBox, QStackedWidget,
+    QCheckBox, QStackedWidget, QMessageBox,
 )
 
 
@@ -307,18 +307,21 @@ async def fetch_whitelist() -> set:
     return set(load_config().get("whitelist", []))   # 네트워크 실패 → 마지막 캐시로 동작
 
 
-async def fetch_live(uuid: str) -> bool:
-    """치지직 공개 API 의 openLive 로 방송 on/off 판정. (19+ 도 openLive 는 공개라 감지됨)"""
-    import aiohttp
-    url = f"https://api.chzzk.naver.com/service/v1/channels/{uuid}"
+async def fetch_status(uuid: str):
+    """(is_live, is_adult) 반환. chzzkpy live_status 한 번으로 방송 on/off + 19세 여부 동시 판정.
+       방송 안 하면 live_status 가 None → (False, False)."""
     try:
-        timeout = aiohttp.ClientTimeout(total=5)
-        async with aiohttp.ClientSession(headers=UA, timeout=timeout) as s:
-            async with s.get(url) as r:
-                data = await r.json()
-        return bool(((data or {}).get("content") or {}).get("openLive"))
+        from chzzkpy.unofficial import Client
+        c = Client()
+        st = await c.live_status(channel_id=uuid)
+        await c.close()
     except Exception:
-        return False
+        return (False, False)
+    if st is None:
+        return (False, False)
+    is_live = (getattr(st, "status", "") == "OPEN")
+    is_adult = bool(getattr(st, "adult", False))
+    return (is_live, is_adult)
 
 
 def pz_running() -> bool:
@@ -357,6 +360,7 @@ class DonationWorker(QObject):
     resolved = pyqtSignal(str, str)        # uuid, display_name
     failed   = pyqtSignal(str)             # 멈춤
     note     = pyqtSignal(str)             # 로그용 (안 멈춤)
+    adult_blocked = pyqtSignal()           # 19세 방송으로 전환 감지 (멈춤 + 게이트 복귀)
 
     def __init__(self, source, channel_text, nid_aut="", nid_ses="", reconnect_sec=5.0):
         super().__init__()
@@ -412,8 +416,7 @@ class DonationWorker(QObject):
                 self._note_once("연결 끊김 (방송 종료?) — 재접속 대기 중")
                 self.status.emit("재접속 대기…", "#ef9f27")
             except AdultVerificationRequired:
-                self.failed.emit("19세 방송이야. ‘19세 방송 연동’을 켜고 성인인증된 네이버 쿠키를 넣어줘. "
-                                 "(이미 넣었다면 쿠키가 만료됐을 수 있음 — 갱신 필요)")
+                self.adult_blocked.emit()
                 return
             except ChannelOffline:
                 if self._stop:
@@ -488,7 +491,7 @@ class MainWindow(QWidget):
     def __init__(self, preset=None):
         super().__init__()
         self.preset = preset or {}        # 런처에서 넘어온 {channel,uuid,name,autostart}
-        self.setWindowTitle("치지직 API Launcher  v1.1.2")
+        self.setWindowTitle("치지직 API Launcher  v1.2.0")
         ico = resource_path(ICON_FILE)
         if os.path.exists(ico):
             self.setWindowIcon(QIcon(ico))
@@ -497,9 +500,7 @@ class MainWindow(QWidget):
         self.worker = None
         self.cfg = load_config()
         self._returning = False                       # 게이트 복귀 중복 방지
-        self._pz_misses = 0
-        self._pz_timer = QTimer(self)                 # PZ 종료 감시 (연동 중에만 동작)
-        self._pz_timer.timeout.connect(self._check_pz)
+        self.guard = None                             # PZ 종료 + 19세 전환 감시 (연동 중에만)
         self._build()
         self._restore()
         if self.preset.get("autostart"):
@@ -540,23 +541,6 @@ class MainWindow(QWidget):
         choose = QPushButton("직접 지정"); choose.setObjectName("link"); choose.clicked.connect(self._choose_path)
         prow.addWidget(redetect); prow.addWidget(choose)
         root.addLayout(prow)
-
-        # 19세 방송 (쿠키)
-        self.adult_check = QCheckBox("19세 방송 연동  (네이버 쿠키 필요)")
-        self.adult_check.toggled.connect(self._on_adult_toggle)
-        root.addWidget(self.adult_check)
-        crow = QHBoxLayout()
-        self.nid_aut_input = QLineEdit(); self.nid_aut_input.setPlaceholderText("NID_AUT")
-        self.nid_ses_input = QLineEdit(); self.nid_ses_input.setPlaceholderText("NID_SES")
-        for w in (self.nid_aut_input, self.nid_ses_input):
-            w.setEchoMode(QLineEdit.Password); w.setEnabled(False)
-        crow.addWidget(self.nid_aut_input); crow.addWidget(self.nid_ses_input)
-        root.addLayout(crow)
-        self.remember_cookies = QCheckBox("쿠키 기억"); self.remember_cookies.setEnabled(False)
-        root.addWidget(self.remember_cookies)
-        self.cookie_hint = QLabel("치지직 로그인 후 F12 → Application → Cookies 에서 복사 · 성인인증된 계정 · 약 한 달이면 만료")
-        self.cookie_hint.setObjectName("hint"); self.cookie_hint.setWordWrap(True); self.cookie_hint.setVisible(False)
-        root.addWidget(self.cookie_hint)
 
         # 시작/중지 + 상태
         srow = QHBoxLayout()
@@ -616,22 +600,11 @@ class MainWindow(QWidget):
             self.path_input.setText(manual)
         else:
             self._autodetect_path()
-        if self.cfg.get("adult", False):
-            self.adult_check.setChecked(True)
-        if self.cfg.get("remember_cookies", False):
-            self.remember_cookies.setChecked(True)
-            self.nid_aut_input.setText(self.cfg.get("nid_aut", ""))
-            self.nid_ses_input.setText(self.cfg.get("nid_ses", ""))
 
     def _persist(self):
-        remember = self.remember_cookies.isChecked()
         self.cfg.update({
             "channel": self.channel_input.text().strip(),
             "path": str(self.adapter.path) if self.adapter.path else "",
-            "adult": self.adult_check.isChecked(),
-            "remember_cookies": remember,
-            "nid_aut": self.nid_aut_input.text() if remember else "",
-            "nid_ses": self.nid_ses_input.text() if remember else "",
         })
         save_config(self.cfg)
 
@@ -640,12 +613,6 @@ class MainWindow(QWidget):
         if self.worker:
             self.worker.stop()
         super().closeEvent(e)
-
-    # --- 19세 토글 ---
-    def _on_adult_toggle(self, on):
-        for w in (self.nid_aut_input, self.nid_ses_input, self.remember_cookies):
-            w.setEnabled(on)
-        self.cookie_hint.setVisible(on)
 
     # --- 경로 ---
     def _autodetect_path(self):
@@ -680,26 +647,32 @@ class MainWindow(QWidget):
             self._log("채널을 먼저 입력해줘."); return
         if self.adapter.path is None:
             self._log("rewards.txt 경로가 없어. ‘직접 지정’으로 골라줘."); return
-        nid_aut = self.nid_aut_input.text().strip() if self.adult_check.isChecked() else ""
-        nid_ses = self.nid_ses_input.text().strip() if self.adult_check.isChecked() else ""
         self._persist()
         source = ChzzkpySource()                       # ← 수신 어댑터. 공식 API 가면 여기만 교체.
-        self.worker = DonationWorker(source, ch, nid_aut, nid_ses)
+        self.worker = DonationWorker(source, ch)
         self.worker.donation.connect(self._on_donation)
         self.worker.status.connect(self._on_status)
         self.worker.resolved.connect(self._on_resolved)
         self.worker.failed.connect(self._on_failed)
         self.worker.note.connect(self._log)
+        self.worker.adult_blocked.connect(self._adult_to_gate)   # chzzkpy가 19세 전환 잡으면(최대 ~58s)
         self.worker.start()
         self.start_btn.setText("중지"); self.start_btn.setObjectName("stop"); self.setStyleSheet(DARK_QSS)
         self.channel_input.setEnabled(False)
-        if self.preset.get("autostart"):               # 게이트를 거쳐 들어온 경우만 PZ 감시
-            self._pz_misses = 0
-            self._pz_timer.start(3000)
-        self._log("연동 시작…" + ("  (19세 방송 모드)" if self.adult_check.isChecked() else ""))
+        uuid = self.preset.get("uuid")
+        if self.preset.get("autostart") and uuid:      # 게이트를 거쳐 들어온 경우만 감시
+            self.guard = MainGuard(uuid)               # PZ 종료 + 19세 전환을 짧은 주기로 직접 폴링
+            self.guard.pz_lost.connect(self._pz_to_gate)
+            self.guard.adult_on.connect(self._adult_to_gate)
+            self.guard.start()
+        self._log("연동 시작…")
+
+    def _kill_guard(self):
+        if self.guard is not None:
+            self.guard.shutdown(); self.guard = None
 
     def _stop(self):
-        self._pz_timer.stop()
+        self._kill_guard()
         if self.worker:
             self.worker.stop(); self.worker = None
         self.start_btn.setText("연동 시작"); self.start_btn.setObjectName("start"); self.setStyleSheet(DARK_QSS)
@@ -707,28 +680,31 @@ class MainWindow(QWidget):
         self._on_status("대기 중", "#5f5e5a")
         self._log("중지됨.")
 
-    def _back_to_gate(self):
-        """워커 정리하고 완전 초기 상태의 게이트 창으로 돌아간다 (중지 / PZ 종료 공통)."""
+    def _back_to_gate(self, warn_adult=False):
+        """워커 정리하고 완전 초기 상태의 게이트 창으로 돌아간다 (중지 / PZ 종료 / 19세 전환 공통).
+           warn_adult=True 면 복귀 전에 경고창. _returning 을 먼저 세워 경고창 중 중복 트리거를 막는다."""
         if self._returning:
             return
         self._returning = True
-        self._pz_timer.stop()
+        self._kill_guard()
         if self.worker:
             self.worker.stop(); self.worker = None
+        if warn_adult:
+            QMessageBox.warning(self, "19세 방송 감지",
+                                "방송이 19세(성인) 방송으로 전환됐어.\n연동을 중단하고 게이트로 돌아갑니다.")
         self._persist()
         self._gate = LauncherWindow()                  # 매번 새 게이트 = 채널부터 다시 (완전 초기)
         self._gate.show()
         self.close()
 
-    def _check_pz(self):
-        """연동 중 PZ가 종료됐는지 주기 확인. 일시적 오탐 방지로 2회 연속 미감지 시 복귀."""
-        if pz_running():
-            self._pz_misses = 0
-        else:
-            self._pz_misses += 1
-            if self._pz_misses >= 2:
-                self._log("Project Zomboid 종료 감지 — 게이트로 돌아갑니다.")
-                self._back_to_gate()
+    def _pz_to_gate(self):
+        if self._returning:
+            return
+        self._log("Project Zomboid 종료 감지 — 게이트로 돌아갑니다.")
+        self._back_to_gate()
+
+    def _adult_to_gate(self):
+        self._back_to_gate(warn_adult=True)
 
     # --- 시그널 핸들러 ---
     def _on_donation(self, amount, sender, message):
@@ -772,6 +748,7 @@ class LauncherCore(QObject):
     resolved = pyqtSignal(str, str)   # uuid, name
     invalid  = pyqtSignal()           # 파싱 실패 or 화이트리스트 미등재
     live     = pyqtSignal(bool)       # 방송 on/off
+    adult    = pyqtSignal(bool)       # 19세 방송 여부
     pz       = pyqtSignal(bool)       # PZ 실행 여부
 
     def __init__(self):
@@ -824,7 +801,9 @@ class LauncherCore(QObject):
     async def _poll(self):
         self._polling = True
         while self._polling:
-            self.live.emit(await fetch_live(self._uuid))
+            live, adult = await fetch_status(self._uuid)
+            self.live.emit(live)
+            self.adult.emit(adult)
             try:
                 running = await self.loop.run_in_executor(None, pz_running)
             except Exception:
@@ -841,21 +820,76 @@ class LauncherCore(QObject):
             self.loop.call_soon_threadsafe(self.loop.stop)
 
 
+class MainGuard(QObject):
+    """메인 연동 중 감시 워커: PZ 종료 + 19세 전환을 짧은 주기로 폴링해서 시그널만 쏜다."""
+    pz_lost  = pyqtSignal()
+    adult_on = pyqtSignal()
+
+    def __init__(self, uuid):
+        super().__init__()
+        self.uuid = uuid
+        self.loop = None
+        self._polling = False
+        self._pz_misses = 0
+        self._ready = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+        self._ready.wait(2)
+
+    def _run(self):
+        self.loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self.loop)
+        self.loop.call_soon(self._ready.set)
+        self.loop.run_forever()
+
+    def start(self):
+        self._polling = True
+        asyncio.run_coroutine_threadsafe(self._poll(), self.loop)
+
+    async def _poll(self):
+        while self._polling:
+            _, adult = await fetch_status(self.uuid)
+            if adult:                              # 19세 전환 → 즉시 알림 후 종료
+                self._polling = False
+                self.adult_on.emit()
+                break
+            try:
+                running = await self.loop.run_in_executor(None, pz_running)
+            except Exception:
+                running = False
+            if running:
+                self._pz_misses = 0
+            else:
+                self._pz_misses += 1               # 일시적 오탐 방지로 2회 연속 미감지 시 복귀
+                if self._pz_misses >= 2:
+                    self._polling = False
+                    self.pz_lost.emit()
+                    break
+            await asyncio.sleep(3)
+
+    def shutdown(self):
+        self._polling = False
+        if self.loop is not None:
+            self.loop.call_soon_threadsafe(self.loop.stop)
+
+
 class LauncherWindow(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("치지직 API Launcher  v1.1.2")
+        self.setWindowTitle("치지직 API Launcher  v1.2.0")
         ico = resource_path(ICON_FILE)
         if os.path.exists(ico):
             self.setWindowIcon(QIcon(ico))
-        self.resize(620, 330)
+        self.resize(620, 300)
         self.core = LauncherCore()
         self.core.resolved.connect(self._on_resolved)
         self.core.invalid.connect(self._on_invalid)
         self.core.live.connect(self._on_live)
+        self.core.adult.connect(self._on_adult)
         self.core.pz.connect(self._on_pz)
         self._uuid = ""; self._name = ""
-        self._live = False; self._pz = False
+        self._live = False; self._pz = False; self._adult = False
+        self._adult_warned = False
         self.main_win = None
         self._build()
         self.setStyleSheet(DARK_QSS)
@@ -915,6 +949,10 @@ class LauncherWindow(QWidget):
         self.r_uuid = self._check_row(); v.addWidget(self.r_uuid[0])
         self.r_live = self._check_row(); v.addWidget(self.r_live[0])
         self.r_pz   = self._check_row(); v.addWidget(self.r_pz[0])
+        self.adult_warn = QLabel("⚠ 19세(성인) 방송은 연동할 수 없습니다")
+        self.adult_warn.setObjectName("err"); self.adult_warn.setAlignment(Qt.AlignCenter)
+        self.adult_warn.setVisible(False)
+        v.addWidget(self.adult_warn)
         v.addSpacing(10)
         row = QHBoxLayout(); row.addStretch(1)
         self.connect_btn = QPushButton("연동 시작"); self.connect_btn.setObjectName("start")
@@ -953,6 +991,8 @@ class LauncherWindow(QWidget):
         self.verify_btn.setText("확인")
         self.welcome.setText(f"<span style='color:#5dcaa5'>[ {self._name} ]</span> 님, 환영합니다")
         self._live = False; self._pz = False
+        self._adult = False; self._adult_warned = False
+        self.adult_warn.setVisible(False)
         self._set_row(self.r_uuid, True,  "UUID 확인 완료")
         self._set_row(self.r_live, False, "방송 상태 확인 중…")
         self._set_row(self.r_pz,   False, "Project Zomboid 확인 중…")
@@ -981,8 +1021,20 @@ class LauncherWindow(QWidget):
                       "Project Zomboid 실행 중" if running else "Project Zomboid가 실행중이 아닙니다")
         self._refresh()
 
+    def _on_adult(self, is_adult):
+        self._adult = is_adult
+        self.adult_warn.setVisible(is_adult)
+        if is_adult and not self._adult_warned:
+            self._adult_warned = True
+            QMessageBox.warning(self, "19세 방송 감지",
+                                "이 방송은 19세(성인) 방송이라 연동할 수 없어.\n"
+                                "일반 방송으로 전환하면 자동으로 연동 가능해져.")
+        elif not is_adult:
+            self._adult_warned = False
+        self._refresh()
+
     def _refresh(self):
-        self.connect_btn.setEnabled(self._live and self._pz)
+        self.connect_btn.setEnabled(self._live and self._pz and not self._adult)
 
     def _go_main(self):
         self.core.stop_poll()
