@@ -352,11 +352,33 @@ def pz_running() -> bool:
 
 
 def pz_connected() -> bool:
-    try:
-        path = Path.home() / "Zomboid" / "Lua" / "pz_status.txt"
-        return path.read_text(encoding="utf-8").strip() == "CONNECTED"
-    except Exception:
-        return False
+    """pz_status.txt 읽어 인게임 접속 여부 확인.
+    형식: CONNECTED|<unix timestamp>  — 10초 이상 갱신 없으면 False (Lua heartbeat 끊긴 것)."""
+    TIMEOUT = 10
+    home = Path.home()
+    cands = [
+        home / "Zomboid" / "Lua" / "pz_status.txt",
+        Path(os.environ.get("USERPROFILE", home)) / "Zomboid" / "Lua" / "pz_status.txt",
+    ]
+    for env in ("OneDrive", "OneDriveConsumer"):
+        od = os.environ.get(env)
+        if od:
+            cands.append(Path(od) / "Zomboid" / "Lua" / "pz_status.txt")
+    for c in cands:
+        if c.exists():
+            try:
+                raw = c.read_text(encoding="utf-8").strip()
+                if not raw.startswith("CONNECTED"):
+                    return False
+                parts = raw.split("|")
+                if len(parts) < 2:
+                    return False
+                ts = float(parts[1])
+                return (time.time() - ts) <= TIMEOUT
+            except Exception:
+                return False
+    return False
+
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
