@@ -512,7 +512,7 @@ def make_header() -> QWidget:
             h.addWidget(logo)
     brand = QLabel("치지직 API Launcher"); brand.setObjectName("brand")
     h.addWidget(brand); h.addStretch(1)
-    ver = QLabel("v1.3.1"); ver.setObjectName("ver")
+    ver = QLabel("v1.3.2"); ver.setObjectName("ver")
     h.addWidget(ver)
     return bar
 
@@ -521,7 +521,7 @@ class MainWindow(QWidget):
     def __init__(self, preset=None):
         super().__init__()
         self.preset = preset or {}        # 런처에서 넘어온 {channel,uuid,name,autostart}
-        self.setWindowTitle("치지직 API Launcher  v1.3.1")
+        self.setWindowTitle("치지직 API Launcher  v1.3.2")
         ico = resource_path(ICON_FILE)
         if os.path.exists(ico):
             self.setWindowIcon(QIcon(ico))
@@ -857,7 +857,7 @@ class LauncherCore(QObject):
 
 
 class MainGuard(QObject):
-    """메인 연동 중 감시 워커: PZ 종료 + 19세 전환을 짧은 주기로 폴링해서 시그널만 쏜다."""
+    """메인 연동 중 감시 워커: PZ 종료 + 19세 전환 + 인게임 이탈을 폴링해서 시그널만 쏜다."""
     pz_lost  = pyqtSignal()
     adult_on = pyqtSignal()
 
@@ -867,6 +867,7 @@ class MainGuard(QObject):
         self.loop = None
         self._polling = False
         self._pz_misses = 0
+        self._conn_misses = 0
         self._ready = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
@@ -901,6 +902,18 @@ class MainGuard(QObject):
                     self._polling = False
                     self.pz_lost.emit()
                     break
+            try:
+                conn = await self.loop.run_in_executor(None, pz_connected)
+            except Exception:
+                conn = True                        # 오류 시 오탐 방지로 연결 유지
+            if conn:
+                self._conn_misses = 0
+            else:
+                self._conn_misses += 1             # 일시적 오탐 방지로 2회 연속 미감지 시 복귀
+                if self._conn_misses >= 2:
+                    self._polling = False
+                    self.pz_lost.emit()
+                    break
             await asyncio.sleep(3)
 
     def shutdown(self):
@@ -912,7 +925,7 @@ class MainGuard(QObject):
 class LauncherWindow(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("치지직 API Launcher  v1.3.1")
+        self.setWindowTitle("치지직 API Launcher  v1.3.2")
         ico = resource_path(ICON_FILE)
         if os.path.exists(ico):
             self.setWindowIcon(QIcon(ico))
@@ -1034,7 +1047,7 @@ class LauncherWindow(QWidget):
         self._set_row(self.r_uuid, True,  "UUID 확인 완료")
         self._set_row(self.r_live, False, "방송 상태 확인 중…")
         self._set_row(self.r_pz,   False, "Project Zomboid 확인 중…")
-        self._set_row(self.r_conn, False, "멀티서버 접속 확인 중…")
+        self._set_row(self.r_conn, False, "인게임 접속 확인 중…")
         self.connect_btn.setEnabled(False)
         self.stack.setCurrentIndex(2)
         self.core.start_poll(uuid)
@@ -1063,7 +1076,7 @@ class LauncherWindow(QWidget):
     def _on_connected(self, conn):
         self._connected = conn
         self._set_row(self.r_conn, conn,
-                      "멀티서버 접속 완료" if conn else "멀티서버에 접속되지 않았습니다")
+                      "인게임 접속 완료" if conn else "인게임에 접속되지 않았습니다")
         self._refresh()
 
     def _on_adult(self, is_adult):
