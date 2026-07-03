@@ -47,7 +47,7 @@ from PyQt5.QtWidgets import (
 #    3) JSON 객체       {"이름":"uuid", ...}  또는  {"whitelist":[...]}
 
 
-VERSION = "v2.1.0"
+VERSION = "v2.1.1"
 
 
 
@@ -672,9 +672,9 @@ class MainWindow(QWidget):
         root.addLayout(tctl)
 
         if self.reward_preset_locked:
-            self.add_row_btn.setEnabled(False)
-            self.export_btn.setEnabled(False)
-            self.save_tiers_btn.setEnabled(False)
+            self.add_row_btn.hide()
+            self.export_btn.hide()
+            self.save_tiers_btn.hide()
 
             lock = QLabel("프리셋이 적용되어 편집이 잠겨 있습니다.")
             lock.setObjectName("muted")
@@ -724,9 +724,9 @@ class MainWindow(QWidget):
         del_btn = QPushButton("✕"); del_btn.setObjectName("link"); del_btn.setFixedWidth(28)
         del_btn.clicked.connect(lambda: self._remove_tier_row(row))
         if self.reward_preset_locked:
-            amt_edit.setEnabled(False)
+            amt_edit.setEnabled(True)
             feat_combo.setEnabled(False)
-            del_btn.setEnabled(False)
+            del_btn.hide()
         h.addWidget(amt_edit); h.addWidget(feat_combo, 1); h.addWidget(del_btn)
         self.tiers_box.addWidget(row)
         self.tier_row_widgets.append((row, amt_edit, feat_combo))
@@ -1163,6 +1163,7 @@ class LauncherWindow(QWidget):
     def _page_input(self):
         w = QWidget(); v = QVBoxLayout(w); v.setContentsMargins(0, 8, 0, 0); v.setSpacing(10)
         v.addWidget(self._sect("치지직 채널 확인"))
+        v.addSpacing(55);
         v.addWidget(self._muted("치지직 채널  —  URL · 채널명 · UUID 아무거나"))
         self.input = QLineEdit()
         self.input.setPlaceholderText("https://chzzk.naver.com/live/…  또는  채널명")
