@@ -47,7 +47,7 @@ from PyQt5.QtWidgets import (
 #    3) JSON 객체       {"이름":"uuid", ...}  또는  {"whitelist":[...]}
 
 
-VERSION = "v2.2.3"
+VERSION = "v2.2.4"
 
 
 
@@ -746,6 +746,14 @@ class MainWindow(QWidget):
     def _sep(self):
         f = QFrame(); f.setObjectName("sep"); f.setFixedHeight(1); return f
 
+    # 잠금 상태 콤보박스: 드롭다운 화살표까지 완전히 안 보이게 (조작 여지 자체를 시각적으로 제거)
+    LOCKED_COMBO_QSS = ("QComboBox::drop-down { width:0px; border:none; }"
+                         "QComboBox::down-arrow { width:0px; height:0px; image:none; }")
+
+    def _lock_combo(self, combo):
+        combo.setEnabled(False)
+        combo.setStyleSheet(self.LOCKED_COMBO_QSS)
+
     # --- 리워드 티어 (금액 <-> featureId) ---
     def _add_tier_row(self, amount=None, feature_id=None):
         """편집 테이블에 한 행(금액 입력 + 기능 콤보 + 삭제버튼) 추가."""
@@ -765,7 +773,7 @@ class MainWindow(QWidget):
         del_btn.clicked.connect(lambda: self._remove_tier_row(row))
         if self.reward_preset_locked:
             amt_edit.setEnabled(False)
-            feat_combo.setEnabled(False)
+            self._lock_combo(feat_combo)
             del_btn.hide()
         h.addWidget(amt_edit); h.addWidget(feat_combo, 1); h.addWidget(del_btn)
         self.tiers_box.addWidget(row)
@@ -820,7 +828,7 @@ class MainWindow(QWidget):
         self.save_tiers_btn.hide()
         for row, amt_edit, feat_combo, del_btn in self.tier_row_widgets:
             amt_edit.setEnabled(False)
-            feat_combo.setEnabled(False)
+            self._lock_combo(feat_combo)
             del_btn.hide()
 
     def _build_test_combo(self):
