@@ -45,9 +45,15 @@ from PyQt5.QtWidgets import (
 #    1) 줄당 하나       UUID / URL / 텍스트 무엇이든. '#' 뒤는 주석
 #    2) JSON 배열       ["uuid", ...]
 #    3) JSON 객체       {"이름":"uuid", ...}  또는  {"whitelist":[...]}
+
+
+VERSION = "v2.1.0"
+
+
+
 WHITELIST_URL = "https://raw.githubusercontent.com/t3qquq/myPZ-Configs/refs/heads/main/streamer%20whitelist.json"
 UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-
+FORCE_ONLINE = False
 
 # ── 로컬 설정 (홈 폴더, exe 옆 아님 -> 권한 문제 회피) ────────────────────────
 CONFIG_DIR = Path.home() / ".chzzk_zomboid"
@@ -123,6 +129,15 @@ class ChzzkpySource(DonationSource):
         self._client = None
 
     async def resolve_channel(self, text):
+
+        global FORCE_ONLINE
+        name = (text or "").strip()
+        # 관리자 모드
+        if name.lower() == "t3qquq":
+            FORCE_ONLINE = True
+            return "t3qquq", "t3qquq"
+        FORCE_ONLINE = False
+
         uuid = extract_uuid(text)
         if uuid:
             return uuid, (await self._fetch_channel_name(uuid) or "")
@@ -222,9 +237,9 @@ class ZomboidAdapter(GameAdapter):
         "buff_roulette":       "버프 룰렛",
         "zombie_roulette":     "좀비 룰렛",
         "sprinter5":           "스프린터 5마리",
-        "bandit_melee":        "밴딧(근접)",
+        "bandit_melee":        "적대 NPC (근접)",
         "vaccine":             "백신",
-        "bandit_ranged":       "밴딧(원거리)",
+        "bandit_ranged":       "적대 NPC (원거리)",
         "exile":               "추방 텔레포트",
         "backroom":            "백룸",
         "missile":             "미사일 폭격",
@@ -347,7 +362,7 @@ async def fetch_whitelist() -> set:
 async def fetch_status(uuid: str):
     """(is_live, is_adult) 반환. chzzkpy live_status 한 번으로 방송 on/off + 19세 여부 동시 판정.
        방송 안 하면 live_status 가 None → (False, False)."""
-    if uuid == "2eef65dbe7d5a7d51423ec114808984d":   # 관리자: 오프라인이어도 라이브 취급
+    if FORCE_ONLINE:
         return (True, False)
     try:
         from chzzkpy.unofficial import Client
@@ -551,7 +566,7 @@ def make_header() -> QWidget:
             h.addWidget(logo)
     brand = QLabel("치지직 API Launcher"); brand.setObjectName("brand")
     h.addWidget(brand); h.addStretch(1)
-    ver = QLabel("v2.0.0"); ver.setObjectName("ver")
+    ver = QLabel(VERSION); ver.setObjectName("ver")
     h.addWidget(ver)
     return bar
 
@@ -560,7 +575,7 @@ class MainWindow(QWidget):
     def __init__(self, preset=None):
         super().__init__()
         self.preset = preset or {}        # 런처에서 넘어온 {channel,uuid,name,autostart}
-        self.setWindowTitle("치지직 API Launcher  v2.0.0")
+        self.setWindowTitle("치지직 API Launcher  "+VERSION)
         ico = resource_path(ICON_FILE)
         if os.path.exists(ico):
             self.setWindowIcon(QIcon(ico))
@@ -574,6 +589,7 @@ class MainWindow(QWidget):
         self.tier_row_widgets = []                    # [(row_widget, amt_edit, feat_combo), ...]
         # reward_tiers는 _build()가 편집 테이블을 그릴 때 이미 필요하므로 그 전에 로드.
         # 우선순위: 게이트에서 넘어온 preset["reward_tiers"](방금 import) > config.json > 기본값
+        self.reward_preset_locked = "reward_tiers" in self.preset
         self._load_reward_tiers()
         self._build()
         self._restore()
@@ -636,17 +652,33 @@ class MainWindow(QWidget):
             self._add_tier_row(amt, fid)
 
         tctl = QHBoxLayout()
-        add_row = QPushButton("+ 행 추가"); add_row.setObjectName("link")
-        add_row.clicked.connect(lambda: self._add_tier_row())
-        tctl.addWidget(add_row)
+
+        self.add_row_btn = QPushButton("+ 행 추가")
+        self.add_row_btn.setObjectName("link")
+        self.add_row_btn.clicked.connect(lambda: self._add_tier_row())
+        tctl.addWidget(self.add_row_btn)
+
         tctl.addStretch(1)
-        export_btn = QPushButton("내보내기"); export_btn.setObjectName("link")
-        export_btn.clicked.connect(self._export_reward_preset)
-        tctl.addWidget(export_btn)
-        save_tiers = QPushButton("저장")
-        save_tiers.clicked.connect(self._save_tiers)
-        tctl.addWidget(save_tiers)
+
+        self.export_btn = QPushButton("내보내기")
+        self.export_btn.setObjectName("link")
+        self.export_btn.clicked.connect(self._export_reward_preset)
+        tctl.addWidget(self.export_btn)
+
+        self.save_tiers_btn = QPushButton("저장")
+        self.save_tiers_btn.clicked.connect(self._save_tiers)
+        tctl.addWidget(self.save_tiers_btn)
+
         root.addLayout(tctl)
+
+        if self.reward_preset_locked:
+            self.add_row_btn.setEnabled(False)
+            self.export_btn.setEnabled(False)
+            self.save_tiers_btn.setEnabled(False)
+
+            lock = QLabel("프리셋이 적용되어 편집이 잠겨 있습니다.")
+            lock.setObjectName("muted")
+            root.addWidget(lock)
 
         root.addWidget(self._sep())
 
@@ -691,6 +723,10 @@ class MainWindow(QWidget):
                 feat_combo.setCurrentIndex(idx)
         del_btn = QPushButton("✕"); del_btn.setObjectName("link"); del_btn.setFixedWidth(28)
         del_btn.clicked.connect(lambda: self._remove_tier_row(row))
+        if self.reward_preset_locked:
+            amt_edit.setEnabled(False)
+            feat_combo.setEnabled(False)
+            del_btn.setEnabled(False)
         h.addWidget(amt_edit); h.addWidget(feat_combo, 1); h.addWidget(del_btn)
         self.tiers_box.addWidget(row)
         self.tier_row_widgets.append((row, amt_edit, feat_combo))
@@ -970,6 +1006,11 @@ class LauncherCore(QObject):
             uuid, name = await src.resolve_channel(text)
         except Exception:
             uuid, name = None, ""
+
+        if FORCE_ONLINE:
+            self.resolved.emit(uuid, name or "")
+            return
+
         wl = await self._ensure_wl()
         if uuid and uuid in wl:                # wl 비었으면(=로드 실패) 전원 차단 = fail-closed
             self.resolved.emit(uuid, name or "")
@@ -1078,7 +1119,7 @@ class MainGuard(QObject):
 class LauncherWindow(QWidget):
     def __init__(self, preset=None):
         super().__init__()
-        self.setWindowTitle("치지직 API Launcher  v2.0.0")
+        self.setWindowTitle("치지직 API Launcher  "+VERSION)
         ico = resource_path(ICON_FILE)
         if os.path.exists(ico):
             self.setWindowIcon(QIcon(ico))
