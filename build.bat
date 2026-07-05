@@ -15,7 +15,7 @@ if errorlevel 1 (
 echo.
 
 echo [2/2] Building exe... ^(may take a few minutes^)
-py -m PyInstaller --onefile --noconsole --name PuppetAPI --icon=PuppetAPI_smart.ico --add-data "PuppetAPI_smart.ico;." --collect-all chzzkpy --collect-all ahttp_client gui.py
+py -m PyInstaller --onefile --noconsole --name PuppetAPI --icon=PuppetAPI_smart.ico --add-data "PuppetAPI_smart.ico;." --add-data "opt_conf;opt_conf" --collect-all chzzkpy --collect-all ahttp_client gui.py
 if errorlevel 1 (
     echo.
     echo [!] Build failed. Copy the red error above and ask about it.
