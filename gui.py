@@ -50,7 +50,7 @@ from PyQt5.QtWidgets import (
 #    3) JSON 객체       {"이름":"uuid", ...}  또는  {"whitelist":[...]}
 
 
-VERSION = "v3.1.0"
+VERSION = "v3.1.1"
 
 
 
@@ -322,7 +322,7 @@ class ZomboidAdapter(GameAdapter):
         40000:  "mutant_spawn",
         50000:  "bandit_ranged",
         150000: "missile",
-        600000: "rise_up_dead_man",
+        200000: "rise_up_dead_man",
     }
 
     def __init__(self):
