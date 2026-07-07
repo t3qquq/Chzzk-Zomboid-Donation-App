@@ -50,7 +50,7 @@ from PyQt5.QtWidgets import (
 #    3) JSON 객체       {"이름":"uuid", ...}  또는  {"whitelist":[...]}
 
 
-VERSION = "v3.1.1"
+VERSION = "v3.2.0"
 
 
 
@@ -289,24 +289,27 @@ class ZomboidAdapter(GameAdapter):
     # featureId -> 표시 라벨. rewardManager.lua의 rewardHandlers 키와 반드시 1:1로 일치해야 함
     # (mod_source.txt 기준, 18개 고정값 — 임의로 이름 바꾸지 말 것).
     FEATURES = {
-        "debuff_roulette":     "디버프 룰렛",
         "buff_roulette":       "버프 룰렛",
+        "debuff_roulette":     "디버프 룰렛",
         "zombie_roulette":     "좀비 룰렛",
-        "sprinter5":           "스프린터 5마리",
-        "bandit_melee":        "적대 NPC (근접)",
+        "random_weapon":       "랜덤 무기",
         "vaccine":             "백신",
-        "bandit_ranged":       "적대 NPC (원거리)",
-        "exile":               "추방 텔레포트",
-        "backroom":            "백룸",
+        "sprinter5":           "스프린터 5마리",
+        "bandit_melee":        "암살자 파견 (근접)",
+        "bandit_ranged":       "암살자 파견 (원거리)",
         "missile":             "미사일 폭격",
-        "random_weapon":       "랜덤 무기 (미구현)",
         "random_skill_potion": "신체 강화 혈청",
+        "mutant_spawn":        "특수좀비 소환",
+        
         "vehicle_kit":         "차량소환 키트 (미구현)",
         "revive_ticket":       "즉시부활 티켓 (미구현)",
-        "mutant_spawn":        "특수좀비 소환",
         "secret_passage_kit":  "비밀통로 키트 (미구현)",
         "horde_night":         "호드나이트 (미구현)",
         "rise_up_dead_man":    "강령술",
+
+        #미사용
+        "exile":               "추방 텔레포트",
+        "backroom":            "백룸",
     }
 
     # 금액(원) -> featureId. 유저가 GUI에서 자유롭게 재배정 가능(reward_tiers).
@@ -315,6 +318,7 @@ class ZomboidAdapter(GameAdapter):
         1000:   "buff_roulette",
         2000:   "debuff_roulette",
         3000:   "zombie_roulette",
+        5000:   "random_weapon",
         7000:   "vaccine",
         10000:  "sprinter5",
         20000:  "bandit_melee",
