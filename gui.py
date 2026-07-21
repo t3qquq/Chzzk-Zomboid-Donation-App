@@ -67,7 +67,7 @@ from PyQt5.QtWidgets import (
 
 
 
-VERSION = "v3.6.3"
+VERSION = "v3.6.5"
 
 WHITELIST_URL = "https://raw.githubusercontent.com/Project-PongDu/Whitelist/refs/heads/main/streamer%20whitelist.json"
 
@@ -159,6 +159,19 @@ def resource_path(rel):
     return os.path.join(base, rel)
 
 ICON_FILE = "pongdu.ico"
+
+def center_on_screen(win):
+    """창을 현재 커서가 있는 모니터의 작업영역(작업표시줄 제외) 중앙에 배치.
+       fixedSize 창은 OS 캐스케이딩이 안 먹어 show() 후 좌상단에 뜨는 경우가 있어 명시적으로 이동."""
+    from PyQt5.QtWidgets import QApplication, QDesktopWidget
+    from PyQt5.QtGui import QCursor
+    screen = QApplication.desktop().screenNumber(QCursor.pos())
+    if screen < 0:
+        screen = QApplication.desktop().primaryScreen()
+    geo = QDesktopWidget().availableGeometry(screen)
+    fg = win.frameGeometry()
+    fg.moveCenter(geo.center())
+    win.move(fg.topLeft())
 
 def extract_uuid(text: str):
     """입력 어디에 있든 32자리 hex(=채널 UUID)를 뽑는다. URL/라이브URL/생UUID 다 처리."""
@@ -1477,13 +1490,15 @@ class MainWindow(QWidget):
         # 확정된 리워드 티어 (읽기 전용 — 편집은 게이트의 ‘리워드 프리셋 편집하기’)
         root.addWidget(self._muted("리워드 티어  —  편집은 게이트의 ‘리워드 프리셋 편집하기’에서"))
         self.tiers_host = QWidget()
+        self.tiers_host.setToolTip("리워드 프리셋을 수정하려면 ‘중지’ 버튼을 눌러 이전 화면으로 돌아가세요")
         self.tiers_grid = QGridLayout(self.tiers_host)
         self.tiers_grid.setContentsMargins(0, 0, 6, 0)
         self.tiers_grid.setHorizontalSpacing(6); self.tiers_grid.setVerticalSpacing(4)
         tscroll = QScrollArea(); tscroll.setWidgetResizable(True)
         tscroll.setFrameShape(QFrame.NoFrame)
         tscroll.setWidget(self.tiers_host)
-        tscroll.setFixedHeight(190)
+        tscroll.setToolTip("리워드 프리셋을 수정하려면 ‘중지’ 버튼을 눌러 이전 화면으로 돌아가세요")
+        tscroll.setFixedHeight(380)
         root.addWidget(tscroll)
         self._render_tier_display()
 
@@ -1657,6 +1672,7 @@ class MainWindow(QWidget):
             "name": self.preset.get("name", ""),
         }
         self._gate = LauncherWindow(preset=preset if preset["uuid"] else None)
+        center_on_screen(self._gate)
         self._gate.show()
         self.close()
 
@@ -2187,6 +2203,7 @@ class LauncherWindow(QWidget):
         preset = {"channel": self.input.text().strip(),
                   "uuid": self._uuid, "name": self._name, "autostart": True}
         self.main_win = MainWindow(preset=preset)
+        center_on_screen(self.main_win)
         self.main_win.show()
         self.close()
 
@@ -2219,7 +2236,7 @@ def main():
     ico = resource_path(ICON_FILE)
     if os.path.exists(ico):
         app.setWindowIcon(QIcon(ico))
-    win = LauncherWindow(); win.show()
+    win = LauncherWindow(); center_on_screen(win); win.show()
     sys.exit(app.exec_())
 
 
