@@ -51,7 +51,7 @@ from PyQt5.QtCore import Qt, QObject, pyqtSignal, QTimer, QSharedMemory
 from PyQt5.QtGui import QIcon, QPixmap
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QLabel, QLineEdit, QPushButton, QComboBox,
-    QTextEdit, QVBoxLayout, QHBoxLayout, QFileDialog, QFrame,
+    QTextEdit, QVBoxLayout, QHBoxLayout, QGridLayout, QFileDialog, QFrame,
     QCheckBox, QStackedWidget, QMessageBox, QDialog, QScrollArea,
 )
 
@@ -67,7 +67,7 @@ from PyQt5.QtWidgets import (
 
 
 
-VERSION = "v3.6.2"
+VERSION = "v3.6.3"
 
 WHITELIST_URL = "https://raw.githubusercontent.com/Project-PongDu/Whitelist/refs/heads/main/streamer%20whitelist.json"
 
@@ -1198,7 +1198,7 @@ class RewardPresetDialog(QDialog):
         ico = resource_path(ICON_FILE)
         if os.path.exists(ico):
             self.setWindowIcon(QIcon(ico))
-        self.setFixedSize(620, 980)
+        self.setFixedSize(620, 800)
         self.rows = []      # [(row_widget, amt_edit, feat_combo, del_btn), ...]
         self.locked = False
         self._build()
@@ -1412,8 +1412,8 @@ class MainWindow(QWidget):
         ico = resource_path(ICON_FILE)
         if os.path.exists(ico):
             self.setWindowIcon(QIcon(ico))
-        self.resize(620, 620)
-        self.setFixedSize(620, 620)
+        self.resize(620, 980)
+        self.setFixedSize(620, 980)
         self.adapter = ZomboidAdapter()
         self.worker = None
         self.cfg = load_config()
@@ -1474,6 +1474,21 @@ class MainWindow(QWidget):
 
         root.addWidget(self._sep())
 
+        # 확정된 리워드 티어 (읽기 전용 — 편집은 게이트의 ‘리워드 프리셋 편집하기’)
+        root.addWidget(self._muted("리워드 티어  —  편집은 게이트의 ‘리워드 프리셋 편집하기’에서"))
+        self.tiers_host = QWidget()
+        self.tiers_grid = QGridLayout(self.tiers_host)
+        self.tiers_grid.setContentsMargins(0, 0, 6, 0)
+        self.tiers_grid.setHorizontalSpacing(6); self.tiers_grid.setVerticalSpacing(4)
+        tscroll = QScrollArea(); tscroll.setWidgetResizable(True)
+        tscroll.setFrameShape(QFrame.NoFrame)
+        tscroll.setWidget(self.tiers_host)
+        tscroll.setFixedHeight(190)
+        root.addWidget(tscroll)
+        self._render_tier_display()
+
+        root.addWidget(self._sep())
+
         # 테스트 후원
         trow = QHBoxLayout()
         trow.addWidget(self._muted("테스트 후원"))
@@ -1497,6 +1512,19 @@ class MainWindow(QWidget):
 
     def _sep(self):
         f = QFrame(); f.setObjectName("sep"); f.setFixedHeight(1); return f
+
+    def _render_tier_display(self):
+        """adapter.reward_tiers -> 읽기 전용 2열 라벨 그리드 (금액 오름차순)."""
+        while self.tiers_grid.count():
+            item = self.tiers_grid.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
+        for i, (amt, fid) in enumerate(sorted(self.adapter.reward_tiers.items())):
+            label = self.adapter.FEATURES.get(fid, fid)
+            l = QLabel(f"{amt:,} — {label}")
+            l.setObjectName("tier")
+            self.tiers_grid.addWidget(l, i // 2, i % 2)
 
     def _build_test_combo(self):
         self.test_combo.clear()
