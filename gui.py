@@ -67,7 +67,7 @@ from PyQt5.QtWidgets import (
 
 
 
-VERSION = "v3.6.0"
+VERSION = "v3.6.1"
 
 WHITELIST_URL = "https://raw.githubusercontent.com/Project-PongDu/Whitelist/refs/heads/main/streamer%20whitelist.json"
 
@@ -1198,7 +1198,7 @@ class RewardPresetDialog(QDialog):
         ico = resource_path(ICON_FILE)
         if os.path.exists(ico):
             self.setWindowIcon(QIcon(ico))
-        self.setFixedSize(560, 640)
+        self.setFixedSize(620, 980)
         self.rows = []      # [(row_widget, amt_edit, feat_combo, del_btn), ...]
         self._build()
         self.setStyleSheet(DARK_QSS)
