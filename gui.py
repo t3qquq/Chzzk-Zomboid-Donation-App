@@ -67,7 +67,7 @@ from PyQt5.QtWidgets import (
 
 
 
-VERSION = "v3.6.5"
+VERSION = "v3.6.6"
 
 WHITELIST_URL = "https://raw.githubusercontent.com/Project-PongDu/Whitelist/refs/heads/main/streamer%20whitelist.json"
 
@@ -1244,12 +1244,6 @@ class RewardPresetDialog(QDialog):
         self.add_btn.clicked.connect(lambda: self._add_row())
         trow.addWidget(self.add_btn)
         trow.addStretch(1)
-        self.import_btn = QPushButton("불러오기"); self.import_btn.setObjectName("link")
-        self.import_btn.clicked.connect(self._import)
-        trow.addWidget(self.import_btn)
-        self.reset_btn = QPushButton("초기화"); self.reset_btn.setObjectName("link")
-        self.reset_btn.clicked.connect(self._reset)
-        trow.addWidget(self.reset_btn)
         root.addLayout(trow)
 
         sep = QFrame(); sep.setObjectName("sep"); sep.setFixedHeight(1)
@@ -1258,15 +1252,21 @@ class RewardPresetDialog(QDialog):
         brow = QHBoxLayout()
         self.status = QLabel(""); self.status.setObjectName("muted")
         brow.addWidget(self.status, 1)
+        # 불러오기(편집중) ↔ 내보내기(저장후) 겸용 버튼
+        self.io_btn = QPushButton("불러오기"); self.io_btn.setObjectName("link")
+        self.io_btn.clicked.connect(self._on_io)
+        brow.addWidget(self.io_btn)
+        self.reset_btn = QPushButton("초기화"); self.reset_btn.setObjectName("link")
+        self.reset_btn.clicked.connect(self._reset)
+        brow.addWidget(self.reset_btn)
+        # 저장(편집중) ↔ 다시 편집(저장후) 겸용 버튼
         self.save_btn = QPushButton("저장"); self.save_btn.setObjectName("start")
-        self.save_btn.clicked.connect(self._save)
+        self.save_btn.clicked.connect(self._on_primary)
         brow.addWidget(self.save_btn)
-        self.edit_btn = QPushButton("다시 편집")
-        self.edit_btn.clicked.connect(self._unlock)
-        brow.addWidget(self.edit_btn)
-        close_btn = QPushButton("닫기")
-        close_btn.clicked.connect(self.accept)
-        brow.addWidget(close_btn)
+        # 닫기(편집중) ↔ 확인(저장후) — 둘 다 accept, 텍스트만 다름
+        self.close_btn = QPushButton("닫기")
+        self.close_btn.clicked.connect(self.accept)
+        brow.addWidget(self.close_btn)
         root.addLayout(brow)
 
     def _muted(self, t):
@@ -1281,7 +1281,9 @@ class RewardPresetDialog(QDialog):
                          "QComboBox::down-arrow { width:0px; height:0px; image:none; }")
 
     def _set_locked(self, locked):
-        """저장 후 잠금 / ‘다시 편집’으로 해제 (3.5 잠금 UX). 행 위젯·버튼 표시를 일괄 전환."""
+        """저장 후 잠금 / ‘다시 편집’으로 해제 (3.5 잠금 UX). 행 위젯·버튼 표시/텍스트를 일괄 전환.
+           편집중: 행추가 / 불러오기·초기화·저장·닫기
+           저장후: (행추가 숨김) / 내보내기·초기화·다시 편집·확인"""
         self.locked = locked
         for _row, amt_edit, feat_combo, del_btn in self.rows:
             amt_edit.setEnabled(not locked)
@@ -1289,9 +1291,23 @@ class RewardPresetDialog(QDialog):
             feat_combo.setStyleSheet(self.LOCKED_COMBO_QSS if locked else "")
             del_btn.setVisible(not locked)
         self.add_btn.setVisible(not locked)
-        self.import_btn.setVisible(not locked)
-        self.save_btn.setVisible(not locked)
-        self.edit_btn.setVisible(locked)
+        self.io_btn.setText("내보내기" if locked else "불러오기")
+        self.save_btn.setText("다시 편집" if locked else "저장")
+        self.close_btn.setText("확인" if locked else "닫기")
+
+    def _on_io(self):
+        """겸용 버튼: 편집중이면 불러오기, 저장후면 내보내기."""
+        if self.locked:
+            self._export()
+        else:
+            self._import()
+
+    def _on_primary(self):
+        """겸용 버튼: 편집중이면 저장, 저장후면 다시 편집."""
+        if self.locked:
+            self._unlock()
+        else:
+            self._save()
 
     def _unlock(self):
         self._set_locked(False)
@@ -1377,7 +1393,25 @@ class RewardPresetDialog(QDialog):
         save_reward_preset(tiers)               # Zomboid 폴더의 reward_preset.json에 기록
         self._load_rows(tiers)                  # 금액 오름차순으로 재렌더
         self._set_locked(True)                  # 저장 = 잠금 (‘다시 편집’으로 해제)
-        self._status_msg(f"저장됨 ({len(tiers)}개) — 잠금 상태, ‘다시 편집’으로 수정", ok=True)
+        self._status_msg(f"저장됨 ({len(tiers)}개) — ‘다시 편집’으로 수정 / ‘내보내기’로 파일 저장", ok=True)
+
+    def _export(self):
+        """확정된(잠금 상태) 프리셋을 사용자가 지정한 경로에 JSON({amount: featureId})으로 저장."""
+        tiers = self._collect()
+        if tiers is None:                       # 잠금 상태라 정상적으론 발생 안 하지만 방어적으로
+            return
+        fn, _ = QFileDialog.getSaveFileName(
+            self, "리워드 프리셋 내보내기", str(Path.home() / "reward_preset.json"), "JSON (*.json)")
+        if not fn:
+            return
+        try:
+            Path(fn).write_text(
+                json.dumps({str(k): v for k, v in tiers.items()}, ensure_ascii=False, indent=2),
+                encoding="utf-8")
+        except OSError as e:
+            self._status_msg(f"⚠ 내보내기 실패: {e}", ok=False)
+            return
+        self._status_msg(f"내보냄 ({len(tiers)}개) → {Path(fn).name}", ok=True)
 
     def _import(self):
         """리워드 프리셋(JSON, {amount: featureId}) 파일 -> 편집 테이블에 로드.
