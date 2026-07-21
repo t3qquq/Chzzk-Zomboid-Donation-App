@@ -67,7 +67,7 @@ from PyQt5.QtWidgets import (
 
 
 
-VERSION = "v3.6.6"
+VERSION = "v3.6.7"
 
 WHITELIST_URL = "https://raw.githubusercontent.com/Project-PongDu/Whitelist/refs/heads/main/streamer%20whitelist.json"
 
@@ -1244,6 +1244,13 @@ class RewardPresetDialog(QDialog):
         self.add_btn.clicked.connect(lambda: self._add_row())
         trow.addWidget(self.add_btn)
         trow.addStretch(1)
+        # 불러오기(편집중) ↔ 내보내기(저장후) 겸용 버튼
+        self.io_btn = QPushButton("불러오기"); self.io_btn.setObjectName("link")
+        self.io_btn.clicked.connect(self._on_io)
+        trow.addWidget(self.io_btn)
+        self.reset_btn = QPushButton("초기화"); self.reset_btn.setObjectName("link")
+        self.reset_btn.clicked.connect(self._reset)
+        trow.addWidget(self.reset_btn)
         root.addLayout(trow)
 
         sep = QFrame(); sep.setObjectName("sep"); sep.setFixedHeight(1)
@@ -1252,13 +1259,6 @@ class RewardPresetDialog(QDialog):
         brow = QHBoxLayout()
         self.status = QLabel(""); self.status.setObjectName("muted")
         brow.addWidget(self.status, 1)
-        # 불러오기(편집중) ↔ 내보내기(저장후) 겸용 버튼
-        self.io_btn = QPushButton("불러오기"); self.io_btn.setObjectName("link")
-        self.io_btn.clicked.connect(self._on_io)
-        brow.addWidget(self.io_btn)
-        self.reset_btn = QPushButton("초기화"); self.reset_btn.setObjectName("link")
-        self.reset_btn.clicked.connect(self._reset)
-        brow.addWidget(self.reset_btn)
         # 저장(편집중) ↔ 다시 편집(저장후) 겸용 버튼
         self.save_btn = QPushButton("저장"); self.save_btn.setObjectName("start")
         self.save_btn.clicked.connect(self._on_primary)
