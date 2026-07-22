@@ -4,7 +4,7 @@ echo   PongDu  ( gui.py )  --^>  exe build
 echo ============================================
 echo.
 
-echo [1/3] Pinning chzzkpy version ^(gateway patch targets 2.2.0^)...
+echo [1/3] Pinning chzzkpy version ^(official API source targets 2.2.0^)...
 py -m pip install chzzkpy==2.2.0
 if errorlevel 1 (
     echo.
